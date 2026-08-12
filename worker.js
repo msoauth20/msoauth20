@@ -36,19 +36,15 @@ export default {
       }
 
       if (path === '/authorize') {
-        return await handleAuthorize(env);
+        return await handleAuthorize(request, env);
       }
 
       if (path === '/callback') {
-        return await handleCallback(url, env);
+        return await handleCallback(request, env);
       }
 
       if (path === '/refresh') {
         return await handleRefresh(url, env);
-      }
-
-      if (path === '/config') {
-        return await handleConfig(request, env);
       }
 
       return new Response('Not Found', { status: 404 });
@@ -61,13 +57,17 @@ export default {
   },
 };
 
+
+
 // ─────────────────────────────────────────────
 // 1. /authorize — 跳转到 Microsoft 登录
 // ─────────────────────────────────────────────
-async function handleAuthorize(env) {
-  const clientId = await env.CONFIG.get('CLIENT_ID');
-  const redirectUri = encodeURIComponent(await env.CONFIG.get('REDIRECT_URI'));
+async function handleAuthorize(request, env) {
+  // 硬编码公共 Client ID 和 redirect_uri
+  const clientId = '9e5f94bc-e8a4-4e73-b8be-63364c29d753';
+  const redirectUri = 'http://localhost';
 
+  // Mail.Read 和 Mail.Send 作为默认权限（不在页面显示）
   const scopes = [
     'offline_access',
     'https://graph.microsoft.com/Mail.Read',
@@ -76,41 +76,64 @@ async function handleAuthorize(env) {
   const scope = encodeURIComponent(scopes.join(' '));
 
   const authUrl =
-    `https://login.microsoftonline.com/common/oauth2/v2.0/authorize` +
-    `?client_id=${clientId}` +
-    `&response_type=code` +
-    `&redirect_uri=${redirectUri}` +
-    `&response_mode=query` +
-    `&scope=${scope}` +
-    `&prompt=consent`;
+    'https://login.microsoftonline.com/common/oauth2/v2.0/authorize' +
+    '?client_id=' + encodeURIComponent(clientId) +
+    '&response_type=code' +
+    '&redirect_uri=' + encodeURIComponent(redirectUri) +
+    '&response_mode=query' +
+    '&scope=' + scope +
+    '&prompt=consent';
+
+  // 调试：记录生成的 URL
+  console.log('Auth URL:', authUrl);
 
   // 直接 302 跳转
   return Response.redirect(authUrl, 302);
 }
 
 // ─────────────────────────────────────────────
-// 2. /callback — 用 code 换 token
+// 2. /callback — 用 code 换 token（支持 GET 和 POST）
 // ─────────────────────────────────────────────
-async function handleCallback(url, env) {
-  const code = url.searchParams.get('code');
-  const error = url.searchParams.get('error');
+async function handleCallback(request, env) {
+  let code = null;
+  let error = null;
 
-  if (error) {
-    return jsonResponse({
-      error,
-      error_description: url.searchParams.get('error_description'),
-    }, 400);
+  // 支持 POST 请求（避免 URL 编码问题）
+  if (request.method === 'POST') {
+    try {
+      const body = await request.json();
+      code = body.code;
+    } catch (e) {
+      return jsonResponse({ error: 'Invalid JSON body' }, 400);
+    }
+  } else {
+    // GET 请求
+    const url = new URL(request.url);
+    code = url.searchParams.get('code');
+    error = url.searchParams.get('error');
+
+    if (error) {
+      return jsonResponse({
+        error,
+        error_description: url.searchParams.get('error_description'),
+      }, 400);
+    }
   }
 
   if (!code) {
-    return new Response(renderHTML({ error: 'URL 中未找到 code 参数' }), {
-      headers: { 'Content-Type': 'text/html; charset=utf-8' },
-    });
+    // GET 请求返回 HTML 页面
+    if (request.method !== 'POST') {
+      return new Response(renderHTML({ error: 'URL 中未找到 code 参数' }), {
+        headers: { 'Content-Type': 'text/html; charset=utf-8' },
+      });
+    }
+    return jsonResponse({ error: 'code is required', error_description: '请提供 Authorization Code' }, 400);
   }
 
-  const clientId = await env.CONFIG.get('CLIENT_ID');
-  const clientSecret = await env.CONFIG.get('CLIENT_SECRET');
-  const redirectUri = await env.CONFIG.get('REDIRECT_URI');
+  // 硬编码配置（公共 Client ID）
+  const clientId = '9e5f94bc-e8a4-4e73-b8be-63364c29d753';
+  const clientSecret = '';
+  const redirectUri = 'http://localhost';
 
   const tokenEndpoint =
     'https://login.microsoftonline.com/common/oauth2/v2.0/token';
@@ -132,12 +155,33 @@ async function handleCallback(url, env) {
   const tokenData = await resp.json();
 
   if (!resp.ok) {
+    if (request.method === 'POST') {
+      return jsonResponse({ 
+        error: 'Token 交换失败', 
+        error_description: tokenData.error_description || tokenData.error || '未知错误',
+        details: tokenData 
+      }, 400);
+    }
     return new Response(renderHTML({ error: 'Token 交换失败', details: tokenData }), {
       headers: { 'Content-Type': 'text/html; charset=utf-8' },
     });
   }
 
-  // 返回带 token 的 HTML 页面
+  // POST 请求返回 JSON
+  if (request.method === 'POST') {
+    return jsonResponse({
+      success: true,
+      token: {
+        access_token: tokenData.access_token,
+        refresh_token: tokenData.refresh_token,
+        expires_in: tokenData.expires_in,
+        token_type: tokenData.token_type,
+        scope: tokenData.scope,
+      },
+    });
+  }
+
+  // GET 请求返回 HTML 页面
   return new Response(renderHTML({
     success: true,
     token: {
@@ -161,8 +205,9 @@ async function handleRefresh(url, env) {
     return jsonResponse({ error: 'missing_refresh_token' }, 400);
   }
 
-  const clientId = await env.CONFIG.get('CLIENT_ID');
-  const clientSecret = await env.CONFIG.get('CLIENT_SECRET');
+  // 硬编码配置（公共 Client ID）
+  const clientId = '9e5f94bc-e8a4-4e73-b8be-63364c29d753';
+  const clientSecret = '';
 
   const tokenEndpoint =
     'https://login.microsoftonline.com/common/oauth2/v2.0/token';
@@ -199,152 +244,7 @@ async function handleRefresh(url, env) {
   });
 }
 
-// ─────────────────────────────────────────────
-// 4. /config — 管理 KV 配置（GET 显示表单，POST 保存）
-// ─────────────────────────────────────────────
-async function handleConfig(request, env) {
-  if (request.method === 'POST') {
-    const form = await request.formData();
-    const clientId = form.get('client_id')?.trim();
-    const clientSecret = form.get('client_secret')?.trim();
-    const redirectUri = form.get('redirect_uri')?.trim();
 
-    if (!clientId || !clientSecret || !redirectUri) {
-      return new Response(renderConfigPage(env, '❌ 三个字段都必须填写', 'error'), {
-        headers: { 'Content-Type': 'text/html; charset=utf-8' },
-      });
-    }
-
-    await env.CONFIG.put('CLIENT_ID', clientId);
-    await env.CONFIG.put('CLIENT_SECRET', clientSecret);
-    await env.CONFIG.put('REDIRECT_URI', redirectUri);
-
-    return new Response(renderConfigPage(env, '✅ 配置已保存到 KV！', 'success'), {
-      headers: { 'Content-Type': 'text/html; charset=utf-8' },
-    });
-  }
-
-  // GET — 显示配置表单
-  return new Response(renderConfigPage(env), {
-    headers: { 'Content-Type': 'text/html; charset=utf-8' },
-  });
-}
-
-function renderConfigPage(env, msg, msgType) {
-  // 读取当前值（用于显示，secret 脱敏）
-  return `<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>配置管理 - Microsoft OAuth2</title>
-  <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      background: linear-gradient(135deg, #1a1a2e, #16213e, #0f3460);
-      min-height: 100vh;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      padding: 20px;
-    }
-    .container { max-width: 560px; width: 100%; }
-    .card {
-      background: rgba(255,255,255,0.06);
-      backdrop-filter: blur(20px);
-      border: 1px solid rgba(255,255,255,0.1);
-      border-radius: 16px;
-      padding: 36px;
-      color: #e0e0e0;
-    }
-    h2 { font-size: 1.4em; margin-bottom: 8px; color: #fff; }
-    .subtitle { color: #888; font-size: 0.9em; margin-bottom: 24px; }
-    .field { margin-bottom: 20px; }
-    label {
-      display: block;
-      font-weight: 600;
-      font-size: 0.9em;
-      color: #aaa;
-      margin-bottom: 6px;
-    }
-    input[type="text"] {
-      width: 100%;
-      padding: 10px 14px;
-      background: rgba(0,0,0,0.3);
-      border: 1px solid rgba(255,255,255,0.15);
-      border-radius: 8px;
-      color: #64b5f6;
-      font-family: 'Fira Code', monospace;
-      font-size: 0.9em;
-      outline: none;
-      transition: border 0.2s;
-    }
-    input[type="text"]:focus { border-color: rgba(102,126,234,0.6); }
-    .hint { font-size: 0.8em; color: #666; margin-top: 4px; }
-    .btn {
-      display: inline-block;
-      padding: 12px 28px;
-      background: linear-gradient(135deg, #667eea, #764ba2);
-      color: #fff;
-      border: none;
-      border-radius: 10px;
-      font-size: 1em;
-      font-weight: 600;
-      cursor: pointer;
-      text-decoration: none;
-      transition: all 0.2s;
-      margin-top: 8px;
-    }
-    .btn:hover { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(102,126,234,0.4); }
-    .btn.secondary {
-      background: rgba(255,255,255,0.1);
-      border: 1px solid rgba(255,255,255,0.2);
-      margin-left: 10px;
-    }
-    .msg {
-      padding: 12px 16px;
-      border-radius: 8px;
-      margin-bottom: 20px;
-      font-size: 0.95em;
-    }
-    .msg.success { background: rgba(76,175,80,0.15); border: 1px solid rgba(76,175,80,0.3); color: #81c784; }
-    .msg.error { background: rgba(244,67,54,0.15); border: 1px solid rgba(244,67,54,0.3); color: #ef9a9a; }
-    .actions { margin-top: 24px; }
-  </style>
-</head>
-<body>
-  <div class="container">
-    <div class="card">
-      <h2>⚙️ KV 配置管理</h2>
-      <p class="subtitle">配置存储在 Cloudflare KV（绑定名 CONFIG）中</p>
-      ${msg ? `<div class="msg ${msgType}">${msg}</div>` : ''}
-      <form method="POST">
-        <div class="field">
-          <label>CLIENT_ID</label>
-          <input type="text" name="client_id" placeholder="9e5f94bc-e8a4-4e73-b8be-63364c29d753" required />
-          <div class="hint">Azure AD 应用的 Application (client) ID</div>
-        </div>
-        <div class="field">
-          <label>CLIENT_SECRET</label>
-          <input type="text" name="client_secret" placeholder="你的 Client Secret" required />
-          <div class="hint">Azure AD 应用的 Client Secret Value</div>
-        </div>
-        <div class="field">
-          <label>REDIRECT_URI</label>
-          <input type="text" name="redirect_uri" placeholder="https://ms-oauth-worker.xxx.workers.dev/callback" required />
-          <div class="hint">回调地址，必须与 Azure AD 中配置的一致</div>
-        </div>
-        <div class="actions">
-          <button type="submit" class="btn">💾 保存到 KV</button>
-          <a href="/" class="btn secondary">← 返回首页</a>
-        </div>
-      </form>
-    </div>
-  </div>
-</body>
-</html>`;
-}
 
 // ─────────────────────────────────────────────
 // Helper: JSON 响应
@@ -366,17 +266,37 @@ function renderHTML(result) {
   let contentHTML = '';
 
   if (!result) {
-    // 首页 —— 显示授权按钮
+    // 首页 —— 简化页面，只显示授权按钮
     contentHTML = `
       <div class="card">
         <h2>🔐 Microsoft OAuth2 授权</h2>
-        <p>点击下方按钮，登录 Microsoft 账号并授权访问邮箱。</p>
-        <div class="scopes">
+        
+        <!-- 隐藏的权限说明（Mail.Read 和 Mail.Send 默认启用但不显示） -->
+        <div class="scopes" style="display: none;">
           <div class="scope-item">📧 <code>Mail.Read</code> — 读取邮件</div>
           <div class="scope-item">✉️ <code>Mail.Send</code> — 发送邮件</div>
           <div class="scope-item">🔄 <code>offline_access</code> — 获取 Refresh Token</div>
         </div>
-        <a href="/authorize" class="btn">🚀 开始授权</a>
+        
+        <button class="btn" onclick="handleAuthorizeNewTab()">🚀 获取授权code（新标签页打开）</button>
+        
+        <!-- 手动输入 code 的区域 -->
+        <div class="manual-section" style="margin-top: 24px; padding: 20px; background: rgba(102,126,234,0.1); border: 1px solid rgba(102,126,234,0.3); border-radius: 12px;">
+          <h3 style="font-size: 1.1em; margin-bottom: 12px; color: #64b5f6;">📋 获取 Token</h3>
+          <ol style="font-size: 0.9em; color: #aaa; margin-bottom: 16px; padding-left: 20px; line-height: 1.8;">
+            <li>点击上方按钮，新标签页打开 Microsoft 授权页面</li>
+            <li>在新标签页输入 Microsoft 账号密码并完成授权</li>
+            <li>浏览器会跳转到 <code style="color: #64b5f6;">http://localhost?code=xxx</code></li>
+            <li>复制 URL 中的 <strong>code</strong> 参数值</li>
+            <li>回到此页面，粘贴到下方输入框</li>
+          </ol>
+          <div class="field">
+            <label style="color: #fff; font-size: 1em;">Authorization Code</label>
+            <input type="text" id="manual-code" placeholder="粘贴从 localhost URL 中复制的 code" style="font-size: 1em; padding: 14px;" />
+          </div>
+          <button onclick="exchangeCode()" class="btn" style="margin-top: 12px; width: 100%;">🔄 交换获取 Token</button>
+          <div id="manual-result"></div>
+        </div>
       </div>`;
   } else if (result.error) {
     // 错误页
@@ -460,6 +380,46 @@ function renderHTML(result) {
       font-size: 0.95em;
     }
     .scope-item code { color: #64b5f6; font-weight: 600; }
+    .account-section {
+      margin: 24px 0;
+      padding: 20px;
+      background: rgba(255,255,255,0.05);
+      border-radius: 12px;
+      border: 1px solid rgba(255,255,255,0.1);
+    }
+    .field {
+      margin-bottom: 16px;
+    }
+    .field:last-child {
+      margin-bottom: 0;
+    }
+    .field label {
+      display: block;
+      font-weight: 600;
+      font-size: 0.9em;
+      color: #aaa;
+      margin-bottom: 8px;
+    }
+    .field input[type="text"],
+    .field input[type="password"] {
+      width: 100%;
+      padding: 12px 16px;
+      background: rgba(0,0,0,0.3);
+      border: 1px solid rgba(255,255,255,0.15);
+      border-radius: 8px;
+      color: #64b5f6;
+      font-family: 'Fira Code', monospace;
+      font-size: 0.95em;
+      outline: none;
+      transition: border 0.2s;
+    }
+    .field input[type="text"]:focus,
+    .field input[type="password"]:focus {
+      border-color: rgba(102,126,234,0.6);
+    }
+    .field input::placeholder {
+      color: #555;
+    }
     .btn {
       display: inline-block;
       padding: 12px 28px;
@@ -562,6 +522,96 @@ function renderHTML(result) {
 <body>
   <div class="container">${contentHTML}</div>
   <script>
+    function handleAuthorizeNewTab() {
+      // 在新标签页打开授权页面
+      window.open('/authorize', '_blank');
+      
+      // 聚焦到 code 输入框
+      document.getElementById('manual-code').focus();
+      document.getElementById('manual-code').placeholder = '请在新标签页完成授权，复制 code 粘贴到这里...';
+    }
+    
+    // 页面加载时检查 URL 中是否有 code（从回调页面跳回的情况）
+    window.addEventListener('DOMContentLoaded', function() {
+      // 检查 URL 中是否有 code
+      const urlParams = new URLSearchParams(window.location.search);
+      const code = urlParams.get('code');
+      if (code) {
+        document.getElementById('manual-code').value = code;
+        exchangeCode();
+      }
+    });
+    
+    async function exchangeCode() {
+      const code = document.getElementById('manual-code')?.value?.trim();
+      const el = document.getElementById('manual-result');
+      
+      if (!code) {
+        el.textContent = '❌ 请输入 Authorization Code';
+        el.style.color = '#ef9a9a';
+        return;
+      }
+      
+      el.textContent = '⏳ 正在交换 Token...';
+      el.style.color = '#64b5f6';
+      
+      try {
+        // 使用 POST 请求发送 code，避免 URL 编码问题
+        const resp = await fetch('/callback', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ code: code })
+        });
+        
+        const data = await resp.json();
+        
+        // 检查是否有错误
+        if (data.error) {
+          el.textContent = '❌ ' + (data.error_description || data.error);
+          el.style.color = '#ef9a9a';
+          return;
+        }
+        
+        // 显示 token 信息
+        if (data.success && data.token) {
+          const t = data.token;
+          const accessToken = escapeHTML(t.access_token || '');
+          const refreshToken = escapeHTML(t.refresh_token || '');
+          const expiresIn = t.expires_in || '';
+          const tokenType = t.token_type || '';
+          const scope = t.scope || '';
+          
+          const resultHTML = 
+            '<div style="margin-top: 16px; padding: 16px; background: rgba(76,175,80,0.1); border: 1px solid rgba(76,175,80,0.3); border-radius: 8px;">' +
+              '<h4 style="color: #81c784; margin-bottom: 12px;">✅ Token 获取成功！</h4>' +
+              '<div style="margin-bottom: 12px;">' +
+                '<label style="display: block; font-weight: 600; margin-bottom: 4px; color: #aaa; font-size: 0.9em;">Access Token:</label>' +
+                '<textarea readonly style="width: 100%; height: 60px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; color: #64b5f6; font-family: monospace; font-size: 0.8em; padding: 8px; resize: none;">' + accessToken + '</textarea>' +
+              '</div>' +
+              '<div style="margin-bottom: 12px;">' +
+                '<label style="display: block; font-weight: 600; margin-bottom: 4px; color: #aaa; font-size: 0.9em;">Refresh Token:</label>' +
+                '<textarea readonly style="width: 100%; height: 60px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; color: #64b5f6; font-family: monospace; font-size: 0.8em; padding: 8px; resize: none;">' + refreshToken + '</textarea>' +
+              '</div>' +
+              '<div style="display: flex; gap: 20px; flex-wrap: wrap; font-size: 0.9em; color: #999; margin: 8px 0;">' +
+                '<span>⏱️ 有效期: <strong style="color: #e0e0e0;">' + expiresIn + 's</strong> (' + Math.round(expiresIn / 60) + ' 分钟)</span>' +
+                '<span>🔑 类型: <strong style="color: #e0e0e0;">' + escapeHTML(tokenType) + '</strong></span>' +
+              '</div>' +
+              '<div style="font-size: 0.9em; color: #999; margin: 8px 0;">' +
+                '<span>📎 权限范围: <code style="color: #64b5f6;">' + escapeHTML(scope) + '</code></span>' +
+              '</div>' +
+            '</div>';
+          
+          el.innerHTML = resultHTML;
+        } else {
+          el.textContent = '❌ 无法解析 Token 信息';
+          el.style.color = '#ef9a9a';
+        }
+      } catch(e) {
+        el.textContent = '❌ 请求失败: ' + e.message;
+        el.style.color = '#ef9a9a';
+      }
+    }
+    
     function copyToken(type) {
       const el = document.getElementById(type + '-token');
       if (!el) return;
@@ -570,6 +620,7 @@ function renderHTML(result) {
         if (btn) { btn.textContent = '✅ 已复制'; setTimeout(() => btn.textContent = '📋 复制', 1500); }
       });
     }
+    
     async function testGraphAPI() {
       const el = document.getElementById('api-result');
       const token = document.getElementById('access-token')?.value;
@@ -583,7 +634,7 @@ function renderHTML(result) {
         if (!resp.ok) { el.textContent = '❌ API 错误: ' + JSON.stringify(data, null, 2); return; }
         if (!data.value?.length) { el.textContent = '📭 没有邮件'; return; }
         el.innerHTML = data.value.map((m, i) =>
-          '\n📬 ' + (i+1) + '. [' + m.from?.emailAddress?.address + '] ' + m.subject + '\n   ' + m.receivedDateTime
+          '\\n📬 ' + (i+1) + '. [' + m.from?.emailAddress?.address + '] ' + m.subject + '\\n   ' + m.receivedDateTime
         ).join('');
       } catch(e) { el.textContent = '❌ 请求失败: ' + e.message; }
     }
