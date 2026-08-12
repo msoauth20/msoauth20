@@ -1,0 +1,8 @@
+name = "ms-oauth-worker"
+main = "worker.js"
+compatibility_date = "2024-01-01"
+
+# KV 命名空间绑定
+[[kv_namespaces]]
+ binding = "CONFIG"
+ id = "b24faf75a0314de58718d89557eb77d5"
