@@ -103,7 +103,7 @@ async function handleCallback(request, env) {
   if (request.method === 'POST') {
     try {
       const body = await request.json();
-      code = body.code;
+      code = body.code ? decodeURIComponent(body.code) : null;
       clientId = body.client_id;
       clientSecret = body.client_secret;
     } catch (e) {
@@ -588,7 +588,7 @@ function renderHTML(result) {
     });
     
     async function exchangeCode() {
-      const code = document.getElementById('manual-code')?.value?.trim();
+      const code = decodeURIComponent(document.getElementById('manual-code')?.value?.trim() || '');
       const el = document.getElementById('manual-result');
       
       if (!code) {
@@ -681,7 +681,7 @@ function renderHTML(result) {
       el.textContent = '⏳ 请求 Graph API 中...';
       try {
         const resp = await fetch('https://graph.microsoft.com/v1.0/me/messages?$top=3&$select=subject,from,receivedDateTime', {
-          headers: { 'Authorization': 'Bearer ' + token }
+          headers: { 'Authorization': '***' + token }
         });
         const data = await resp.json();
         if (!resp.ok) { el.textContent = '❌ API 错误: ' + JSON.stringify(data, null, 2); return; }
