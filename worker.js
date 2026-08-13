@@ -346,8 +346,19 @@ function renderHTML(result) {
         <h2>✅ Token 获取成功！</h2>
         <div class="token-section">
           <div class="token-block">
+            <label>Access Token <button onclick="copyToken('access')" class="copy-btn">📋 复制</button></label>
+            <textarea id="access-token" readonly>${escapeHTML(t.access_token)}</textarea>
+          </div>
+          <div class="token-block">
             <label>Refresh Token <button onclick="copyToken('refresh')" class="copy-btn">📋 复制</button></label>
             <textarea id="refresh-token" readonly>${escapeHTML(t.refresh_token)}</textarea>
+          </div>
+          <div class="meta">
+            <span>⏱️ 有效期: <strong>${t.expires_in}s</strong> (${Math.round(t.expires_in / 60)} 分钟)</span>
+            <span>🔑 类型: <strong>${escapeHTML(t.token_type)}</strong></span>
+          </div>
+          <div class="meta">
+            <span>📎 权限范围: <code>${escapeHTML(t.scope)}</code></span>
           </div>
         </div>
         <div class="warn">
@@ -627,8 +638,19 @@ function renderHTML(result) {
             '<div style="margin-top: 16px; padding: 16px; background: rgba(76,175,80,0.1); border: 1px solid rgba(76,175,80,0.3); border-radius: 8px;">' +
               '<h4 style="color: #81c784; margin-bottom: 12px;">✅ Token 获取成功！</h4>' +
               '<div style="margin-bottom: 12px;">' +
+                '<label style="display: block; font-weight: 600; margin-bottom: 4px; color: #aaa; font-size: 0.9em;">Access Token:</label>' +
+                '<textarea readonly style="width: 100%; height: 60px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; color: #64b5f6; font-family: monospace; font-size: 0.8em; padding: 8px; resize: none;">' + accessToken + '</textarea>' +
+              '</div>' +
+              '<div style="margin-bottom: 12px;">' +
                 '<label style="display: block; font-weight: 600; margin-bottom: 4px; color: #aaa; font-size: 0.9em;">Refresh Token:</label>' +
                 '<textarea readonly style="width: 100%; height: 60px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; color: #64b5f6; font-family: monospace; font-size: 0.8em; padding: 8px; resize: none;">' + refreshToken + '</textarea>' +
+              '</div>' +
+              '<div style="display: flex; gap: 20px; flex-wrap: wrap; font-size: 0.9em; color: #999; margin: 8px 0;">' +
+                '<span>⏱️ 有效期: <strong style="color: #e0e0e0;">' + expiresIn + 's</strong> (' + Math.round(expiresIn / 60) + ' 分钟)</span>' +
+                '<span>🔑 类型: <strong style="color: #e0e0e0;">' + escapeHTML(tokenType) + '</strong></span>' +
+              '</div>' +
+              '<div style="font-size: 0.9em; color: #999; margin: 8px 0;">' +
+                '<span>📎 权限范围: <code style="color: #64b5f6;">' + escapeHTML(scope) + '</code></span>' +
               '</div>' +
             '</div>';
           
